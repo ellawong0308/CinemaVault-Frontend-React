@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// 1. 定義完整的 TypeScript 規範
 interface Movie {
-  id: number; // 收藏功能需要明確的 ID
+  id: number;
   title: string;
   genre: string;
   year: number;
@@ -16,27 +15,21 @@ interface User {
 }
 
 const API_BASE_URL = "http://localhost:10888/api/v1";
-const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.googleusercontent.com"; // 請保持你的真實 ID
+// 🌟 請記得換成你真實的 Google Client ID
+const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.googleusercontent.com"; 
 
 export default function App() {
-  // ==========================================
-  // 2. React 核心狀態管理 (State)
-  // ==========================================
   const [movies, setMovies] = useState<Movie[]>([]);
-  const [favoriteIds, setFavoriteIds] = useState<number[]>([]); // 🌟 儲存目前用戶收藏的所有電影 ID 清單
+  const [favoriteIds, setFavoriteIds] = useState<number[]>([]); 
   const [loadingMovies, setLoadingMovies] = useState<boolean>(true);
-  
-  // 分頁狀態：'all' 代表顯示所有電影，'favorites' 代表顯示收藏電影
   const [currentTab, setCurrentTab] = useState<'all' | 'favorites'>('all');
 
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   
-  // 彈窗控制
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   
-  // 表單輸入
   const [usernameInput, setUsernameInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [avatarScale, setAvatarScale] = useState<number>(1.0);
@@ -44,7 +37,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
-  // 3. 初始化加載 (useEffect)
+  // 3. 初始化加載 (useEffect) - 修正生命週期載入順序
   // ==========================================
   useEffect(() => {
     fetchMovies();
@@ -55,19 +48,22 @@ export default function App() {
     const savedPhoto = localStorage.getItem("profile_photo");
 
     if (savedToken && savedUsername && savedRole) {
+      // 🌟 核心修正：確保狀態與本地快取強行同步
       setToken(savedToken);
       setUser({
         username: savedUsername,
         role: savedRole,
-        profile_photo: savedPhoto || null
+        profile_photo: savedPhoto || null // 確保重新整理網頁時頭像不會漏掉
       });
-      // 🌟 如果用戶本来就是登入狀態，初始化時順便抓取他的最愛清單
+      
+      // 傳入確切的暫存 token，防止異步狀態未更新導致 API 抓取失敗
       fetchFavoriteIds(savedToken);
     }
 
     initGoogleSignIn();
   }, []);
 
+  // 當彈窗打開且切換到登入模式時，確保 Google 按鈕能重新渲染
   useEffect(() => {
     if (isModalOpen && authMode === 'login') {
       renderGoogleButton();
@@ -77,8 +73,6 @@ export default function App() {
   // ==========================================
   // 4. APIs 數據請求邏輯
   // ==========================================
-  
-  // 獲取所有電影
   const fetchMovies = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/movies`);
@@ -91,15 +85,14 @@ export default function App() {
     }
   };
 
-  // 🌟 核心新增：單獨抓取當前用戶收藏的「電影 ID 陣列」，方便在所有電影頁面點亮愛心
   const fetchFavoriteIds = async (userToken: string) => {
+    if (!userToken) return;
     try {
       const response = await fetch(`${API_BASE_URL}/movies/favorites`, {
         headers: { "Authorization": `Bearer ${userToken}` }
       });
       if (response.ok) {
         const favMovies: Movie[] = await response.json();
-        // 把收藏電影的 id 提取成陣列，例如 [1, 3]
         setFavoriteIds(favMovies.map(m => m.id));
       }
     } catch (error) {
@@ -107,9 +100,8 @@ export default function App() {
     }
   };
 
-  // 🌟 核心新增：點擊愛心按鈕的 Toggle 處理器
   const handleToggleFavorite = async (movieId: number, e: React.MouseEvent) => {
-    e.stopPropagation(); // 防止點擊愛心時觸發卡片其他事件
+    e.stopPropagation();
 
     if (!token) {
       alert("🔒 Please log in first to add movies to your favorites list!");
@@ -131,7 +123,6 @@ export default function App() {
 
       if (!response.ok) throw new Error(data.error || "Operation failed");
 
-      // 依據後端回傳的最新狀態，動態更新前端 React 的愛心陣列
       if (data.isFavorite) {
         setFavoriteIds(prev => [...prev, movieId]);
       } else {
@@ -142,6 +133,7 @@ export default function App() {
     }
   };
 
+  // 🌟 核心修正：原生帳密登入大會師，確保 profile_photo 注入 React 狀態
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const requestBody = { username: usernameInput.trim(), password: passwordInput };
@@ -168,19 +160,20 @@ export default function App() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Login failed");
 
+        // 將後端回傳的最新頭像路徑牢牢記在 LocalStorage 中
+        const photoPath = data.user.profile_photo || "";
         localStorage.setItem("token", data.token);
         localStorage.setItem("username", data.user.username);
         localStorage.setItem("role", data.user.role);
-        localStorage.setItem("profile_photo", data.user.profile_photo || "");
+        localStorage.setItem("profile_photo", photoPath);
 
         setToken(data.token);
         setUser({
           username: data.user.username,
           role: data.user.role,
-          profile_photo: data.user.profile_photo || null
+          profile_photo: photoPath || null // 🌟 關鍵修正：當場點亮 React 頭像狀態
         });
 
-        // 🌟 登入成功後，立刻同步抓取該用戶的最愛電影清單
         fetchFavoriteIds(data.token);
 
         alert(`👋 Welcome back, ${data.user.username}!`);
@@ -199,8 +192,8 @@ export default function App() {
     localStorage.removeItem("profile_photo");
     setToken(null);
     setUser(null);
-    setFavoriteIds([]); // 登出時清空收藏狀態
-    setCurrentTab('all'); // 強制切回首頁
+    setFavoriteIds([]); 
+    setCurrentTab('all'); 
     alert("🔒 Logged out successfully!");
   };
 
@@ -222,12 +215,13 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to upload photo");
 
+      // 成功上傳後，除了存入 localStorage，更要立即同步更新 React 狀態
       localStorage.setItem("profile_photo", data.photoUrl);
       setUser(prev => prev ? { ...prev, profile_photo: data.photoUrl } : null);
       alert("📸 Profile photo updated successfully!");
     } catch (error: any) {
       alert(`❌ Upload Failed: ${error.message}`);
-    } finally {
+    } {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -255,6 +249,7 @@ export default function App() {
     }, 100);
   };
 
+  // 🌟 核心修正：Google 第三方登入大會師，確保 profile_photo 注入 React 狀態
   const handleGoogleCredentialResponse = async (response: any) => {
     try {
       const res = await fetch(`${API_BASE_URL}/auth/google-login`, {
@@ -265,19 +260,19 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Google authentication failed");
 
+      const photoPath = data.user.profile_photo || "";
       localStorage.setItem("token", data.token);
       localStorage.setItem("username", data.user.username);
       localStorage.setItem("role", data.user.role);
-      localStorage.setItem("profile_photo", data.user.profile_photo || "");
+      localStorage.setItem("profile_photo", photoPath);
 
       setToken(data.token);
       setUser({
         username: data.user.username,
         role: data.user.role,
-        profile_photo: data.user.profile_photo || null
+        profile_photo: photoPath || null // 🌟 關鍵修正：當場點亮 Google 使用者的頭像狀態
       });
 
-      // 🌟 Google 登入大成功，也同步抓取最愛清單
       fetchFavoriteIds(data.token);
 
       alert(`🎉 Google Login Successful! Welcome, ${data.user.username}`);
@@ -293,9 +288,6 @@ export default function App() {
     setPasswordInput('');
   };
 
-  // ==========================================
-  // 5. 🧠 資料過濾邏輯 (核心：用狀態計算目前該渲染的電影)
-  // ==========================================
   const displayedMovies = currentTab === 'all' 
     ? movies 
     : movies.filter(movie => favoriteIds.includes(movie.id));
@@ -307,27 +299,23 @@ export default function App() {
         <div className="logo" onClick={() => setCurrentTab('all')} style={{ cursor: 'pointer' }}>🎬 CinemaVault</div>
         <nav className="nav-links" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           
-          {/* 分頁按鈕 */}
           <button 
             onClick={() => setCurrentTab('all')} 
-            className={`tab-btn ${currentTab === 'all' ? 'active-tab' : ''}`}
             style={{ background: 'none', border: 'none', color: currentTab === 'all' ? '#e50914' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
           >
             Home
           </button>
 
-          {/* 🌟 僅有登入的使用者，才能看到並點擊「My Favorites」分頁 */}
           {user && (
             <button 
               onClick={() => setCurrentTab('favorites')} 
-              className={`tab-btn ${currentTab === 'favorites' ? 'active-tab' : ''}`}
               style={{ background: 'none', border: 'none', color: currentTab === 'favorites' ? '#e50914' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
             >
               My Favorites ❤️ ({favoriteIds.length})
             </button>
           )}
           
-          {/* 個人頭像 */}
+          {/* 個人頭像顯示區 */}
           {user && (
             <div 
               onClick={handleAvatarClick}
@@ -385,13 +373,10 @@ export default function App() {
             </div>
           ) : (
             displayedMovies.map((movie) => {
-              // 判斷這部電影有沒有在收藏清單內
               const isFav = favoriteIds.includes(movie.id);
               
               return (
                 <div key={movie.id} className="movie-card" style={{ position: 'relative' }}>
-                  
-                  {/* 🌟 核心新增：愛心點擊按鈕 */}
                   <button
                     onClick={(e) => handleToggleFavorite(movie.id, e)}
                     style={{

@@ -23,6 +23,12 @@ interface DBMessage {
   created_at: string;
 }
 
+interface SocialPost {
+  platform: string;
+  message: string;
+  timestamp: string;
+}
+
 const API_BASE_URL = "http://localhost:10888/api/v1";
 // 🌟 請記得換成你真實的 Google Client ID
 const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.googleusercontent.com"; 
@@ -31,7 +37,9 @@ export default function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]); 
   const [loadingMovies, setLoadingMovies] = useState<boolean>(true);
-  const [currentTab, setCurrentTab] = useState<'all' | 'favorites' | 'messages'>('all');
+  
+  // 🌟 擴充索引標籤，加入 'social' 虛擬社群動態牆分頁
+  const [currentTab, setCurrentTab] = useState<'all' | 'favorites' | 'messages' | 'social'>('all');
 
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -48,6 +56,9 @@ export default function App() {
   const [msgTitle, setMsgTitle] = useState<string>('');
   const [msgContent, setMsgContent] = useState<string>('');
   const [adminReplies, setAdminReplies] = useState<{ [key: number]: string }>({});
+
+  // 📱 虛擬社群動態牆狀態管理
+  const [socialFeed, setSocialFeed] = useState<SocialPost[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +95,13 @@ export default function App() {
     }
   }, [currentTab, user, token]);
 
+  // 🌟 當切換到社群牆分頁時，自動向後端重新整理並獲取最新虛擬推文
+  useEffect(() => {
+    if (currentTab === 'social') {
+      fetchSocialFeed();
+    }
+  }, [currentTab]);
+
   const fetchMovies = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/movies`);
@@ -108,6 +126,19 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error fetching favorite ids:", error);
+    }
+  };
+
+  // 📱 獲取後台虛擬社群廣播牆動態
+  const fetchSocialFeed = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/movies/social-feed`);
+      if (res.ok) {
+        const data = await res.json();
+        setSocialFeed(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch social feed", err);
     }
   };
 
@@ -384,6 +415,14 @@ export default function App() {
             Home
           </button>
 
+          {/* 🌟 核心功能按鈕：社群媒體公告牆 (公開所有人可查閱) */}
+          <button 
+            onClick={() => setCurrentTab('social')} 
+            style={{ background: 'none', border: 'none', color: currentTab === 'social' ? '#ffb400' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
+          >
+            📱 Admin Social Feed
+          </button>
+
           {user && user.role !== 'admin' && (
             <button 
               onClick={() => setCurrentTab('favorites')} 
@@ -443,17 +482,19 @@ export default function App() {
           {currentTab === 'all' && 'Welcome to CinemaVault'}
           {currentTab === 'favorites' && 'Your Personal Collection'}
           {currentTab === 'messages' && (user?.role === 'admin' ? 'Message Control Center' : 'Contact Support')}
+          {currentTab === 'social' && 'Automated Social Broadcast'}
         </h1>
         <p>
           {currentTab === 'all' && 'Explore current movies, showtimes, and book your tickets seamlessly.'}
           {currentTab === 'favorites' && 'All your curated and loved films kept in one single safe vault.'}
           {currentTab === 'messages' && (user?.role === 'admin' ? 'Review questions and reply to CinemaVault members.' : 'Have any feedback or questions? Drop a mail directly to our Admin group.')}
+          {currentTab === 'social' && 'Real-time simulated webhook feed broadcasting newly released movies to Facebook and Twitter profiles.'}
         </p>
       </section>
 
       {/* 主內容渲染區區塊 */}
       <main className="container">
-        {currentTab !== 'messages' ? (
+        {currentTab !== 'messages' && currentTab !== 'social' ? (
           <>
             <h2 className="section-title">
               {currentTab === 'all' ? 'Now Showing' : '❤️ My Favorite Movies'}
@@ -499,6 +540,28 @@ export default function App() {
               )}
             </div>
           </>
+        ) : currentTab === 'social' ? (
+          /* 🌟 虛擬社群媒體公告牆 UI 渲染區塊 */
+          <div style={{ maxWidth: '650px', margin: '0 auto', background: '#151515', padding: '25px', borderRadius: '8px', border: '1px solid #292929' }}>
+            <h2 style={{ borderBottom: '2px solid #ffb400', paddingBottom: '10px', color: '#fff' }}>📱 Live Social Feed</h2>
+            
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              {socialFeed.length === 0 ? (
+                <p style={{ color: '#aaa', textAlign: 'center', padding: '30px 0' }}>📭 No social media logs generated yet. Try adding a new film entry as Admin to trigger the automated webhooks!</p>
+              ) : (
+                socialFeed.map((post, index) => (
+                  <div key={index} style={{ background: '#222', padding: '15px', borderRadius: '6px', borderLeft: '4px solid #ffb400' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#888', marginBottom: '5px' }}>
+                      <span>🖥️ Sync Hub: {post.platform}</span>
+                      <span>{post.timestamp}</span>
+                    </div>
+                    <p style={{ color: '#fff', margin: '5px 0 0 0', fontSize: '14px', lineHeight: '1.5' }}>{post.message}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         ) : (
           /* 🌟 聯絡管理員分頁：依照角色動態切換 UI */
           <div style={{ maxWidth: '800px', margin: '0 auto', color: '#fff', padding: '20px', background: '#181818', borderRadius: '8px' }}>
@@ -544,7 +607,7 @@ export default function App() {
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     {messages.map((msg) => (
                       <div key={msg.id} style={{ background: '#222', padding: '15px', borderRadius: '6px', borderLeft: '4px solid #e50914' }}>
-                        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                           <span style={{ fontWeight: 'bold', color: '#e50914' }}>From: {msg.username}</span>
                           <button 
                             onClick={() => handleAdminDeleteMessage(msg.id)}
@@ -605,7 +668,13 @@ export default function App() {
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input type="password" placeholder="Enter your password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} required />
+                <input 
+                  type="password" 
+                  placeholder="Enter your password" 
+                  value={passwordInput} 
+                  onChange={(e) => setPasswordInput(e.target.value)} 
+                  required 
+                />
               </div>
               <button type="submit" className="btn-submit">
                 {authMode === 'login' ? 'Sign In' : 'Sign Up'}

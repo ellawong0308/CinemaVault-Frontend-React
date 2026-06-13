@@ -38,9 +38,15 @@ const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.goo
 export default function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]); 
+  
+  // ⏳ 核心全新加入：Watchlist 與 Watched 的狀態管理 ID 陣列
+  const [watchlistIds, setWatchlistIds] = useState<number[]>([]);
+  const [watchedIds, setWatchedIds] = useState<number[]>([]);
+
   const [loadingMovies, setLoadingMovies] = useState<boolean>(true);
   
-  const [currentTab, setCurrentTab] = useState<'all' | 'favorites' | 'messages' | 'social'>('all');
+  // 🌟 擴充 Tab 狀態定義，納入 watchlist 與 watched
+  const [currentTab, setCurrentTab] = useState<'all' | 'favorites' | 'watchlist' | 'watched' | 'messages' | 'social'>('all');
 
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -64,7 +70,7 @@ export default function App() {
   // 🎬 串接 OMDb 後：點擊電影卡片彈出詳情視窗的狀態管理
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
 
-  // 🔍 核心全新加入：搜尋與篩選狀態管理
+  // 🔍 搜尋與篩選狀態管理
   const [searchTitle, setSearchTitle] = useState<string>('');
   const [filterGenre, setFilterGenre] = useState<string>('');
   const [filterYear, setFilterYear] = useState<string>('');
@@ -72,7 +78,7 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 當任何一個篩選或排序條件改變時，即時自動觸發 API 動態查詢（極佳的 UX 互動體驗！）
+  // 當任何一個篩選或排序條件改變時，即時自動觸發 API 動態查詢
   useEffect(() => {
     fetchMovies();
   }, [searchTitle, filterGenre, filterYear, sortOrder]);
@@ -91,6 +97,7 @@ export default function App() {
         profile_photo: savedPhoto && savedPhoto !== "null" ? savedPhoto : null
       });
       fetchFavoriteIds(savedToken);
+      fetchUserLists(savedToken); // 🌟 頁面載入時同步載入待看與已看清單
     }
     initGoogleSignIn();
   }, []);
@@ -113,12 +120,10 @@ export default function App() {
     }
   }, [currentTab]);
 
-  // 🌟 升級版 API 串接：將篩選參數拼接到網址中，實現動態複合查詢
+  // API 串接：動態複合查詢電影
   const fetchMovies = async () => {
     try {
       setLoadingMovies(true);
-      
-      // 建立動態 URL 參數
       const params = new URLSearchParams();
       if (searchTitle.trim()) params.append('title', searchTitle.trim());
       if (filterGenre) params.append('genre', filterGenre);
@@ -135,7 +140,6 @@ export default function App() {
     }
   };
 
-  // 清空所有篩選條件的快速重置按鈕邏輯
   const handleResetFilters = () => {
     setSearchTitle('');
     setFilterGenre('');
@@ -155,6 +159,23 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error fetching favorite ids:", error);
+    }
+  };
+
+  // 🌟 全新加入：向後端索取當前用戶的 待看與已看 ID 陣列
+  const fetchUserLists = async (userToken: string) => {
+    if (!userToken) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/movies/user-lists`, {
+        headers: { "Authorization": `Bearer ${userToken}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setWatchlistIds(data.watchlistIds || []);
+        setWatchedIds(data.watchedIds || []);
+      }
+    } catch (error) {
+      console.error("Error fetching user watchlist/watched lists:", error);
     }
   };
 
@@ -277,6 +298,63 @@ export default function App() {
     }
   };
 
+  // 🌟 全新加入：切換待看清單 (Watchlist) 狀態
+  const handleToggleWatchlist = async (movieId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!token) {
+      alert("🔒 Please log in first to use Watchlist!");
+      setIsModalOpen(true);
+      setAuthMode('login');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/movies/watchlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ movieId })
+      });
+      const data = await res.json();
+      if (data.inWatchlist) {
+        setWatchlistIds(prev => [...prev, movieId]);
+      } else {
+        setWatchlistIds(prev => prev.filter(id => id !== movieId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle watchlist:", err);
+    }
+  };
+
+  // 🌟 全新加入：切換已看清單 (Watched) 狀態（含 UI 智慧連動移除待看）
+  const handleToggleWatched = async (movieId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!token) {
+      alert("🔒 Please log in first to mark as Watched!");
+      setIsModalOpen(true);
+      setAuthMode('login');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/movies/watched`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ movieId })
+      });
+      const data = await res.json();
+      
+      if (data.inWatched) {
+        setWatchedIds(prev => [...prev, movieId]);
+        // 如果後端將其從待看清單中移除了，前端也同步拿掉
+        if (data.removedFromWatchlist) {
+          setWatchlistIds(prev => prev.filter(id => id !== movieId));
+        }
+      } else {
+        setWatchedIds(prev => prev.filter(id => id !== movieId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle watched status:", err);
+    }
+  };
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const requestBody = { username: usernameInput.trim(), password: passwordInput };
@@ -316,6 +394,7 @@ export default function App() {
         });
 
         fetchFavoriteIds(data.token);
+        fetchUserLists(data.token); // 登入成功時抓取待看與已看清單
         alert(`👋 Welcome back, ${data.user.username}!`);
         setIsModalOpen(false);
         resetAuthForm();
@@ -330,6 +409,8 @@ export default function App() {
     setToken(null);
     setUser(null);
     setFavoriteIds([]); 
+    setWatchlistIds([]);
+    setWatchedIds([]);
     setCurrentTab('all'); 
     alert("🔒 Logged out successfully!");
   };
@@ -408,6 +489,7 @@ export default function App() {
       });
 
       fetchFavoriteIds(data.token);
+      fetchUserLists(data.token);
       alert(`🎉 Google Login Successful! Welcome, ${data.user.username}`);
       setIsModalOpen(false);
       resetAuthForm();
@@ -421,10 +503,13 @@ export default function App() {
     setPasswordInput('');
   };
 
-  // 用戶在我的最愛分頁時，前端基於已過濾的清單再次提供最愛過濾
-  const displayedMovies = currentTab === 'all' 
-    ? movies 
-    : movies.filter(movie => favoriteIds.includes(movie.id));
+  // 🌟 核心分頁過濾邏輯：切換分頁時，前端基於對應陣列渲染正確的電影清單
+  const displayedMovies = movies.filter(movie => {
+    if (currentTab === 'favorites') return favoriteIds.includes(movie.id);
+    if (currentTab === 'watchlist') return watchlistIds.includes(movie.id);
+    if (currentTab === 'watched') return watchedIds.includes(movie.id);
+    return true; // 'all'
+  });
 
   return (
     <div>
@@ -448,12 +533,30 @@ export default function App() {
           </button>
 
           {user && user.role !== 'admin' && (
-            <button 
-              onClick={() => setCurrentTab('favorites')} 
-              style={{ background: 'none', border: 'none', color: currentTab === 'favorites' ? '#e50914' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
-            >
-              My Favorites ❤️ ({favoriteIds.length})
-            </button>
+            <>
+              <button 
+                onClick={() => setCurrentTab('favorites')} 
+                style={{ background: 'none', border: 'none', color: currentTab === 'favorites' ? '#e50914' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
+              >
+                My Favorites ❤️ ({favoriteIds.length})
+              </button>
+
+              {/* 🌟 全新加入：Navbar 待看清單按鈕 */}
+              <button 
+                onClick={() => setCurrentTab('watchlist')} 
+                style={{ background: 'none', border: 'none', color: currentTab === 'watchlist' ? '#ffb400' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
+              >
+                ⏳ Watchlist ({watchlistIds.length})
+              </button>
+
+              {/* 🌟 全新加入：Navbar 已看清單按鈕 */}
+              <button 
+                onClick={() => setCurrentTab('watched')} 
+                style={{ background: 'none', border: 'none', color: currentTab === 'watched' ? '#2ecc71' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
+              >
+                ✅ Watched ({watchedIds.length})
+              </button>
+            </>
           )}
 
           {user && (
@@ -504,12 +607,16 @@ export default function App() {
         <h1>
           {currentTab === 'all' && 'Welcome to CinemaVault'}
           {currentTab === 'favorites' && 'Your Personal Collection'}
+          {currentTab === 'watchlist' && '⏳ Your Watchlist'}
+          {currentTab === 'watched' && '✅ Movies You\'ve Watched'}
           {currentTab === 'messages' && (user?.role === 'admin' ? 'Message Control Center' : 'Contact Support')}
           {currentTab === 'social' && 'Automated Social Broadcast'}
         </h1>
         <p>
           {currentTab === 'all' && 'Explore current movies, showtimes, and book your tickets seamlessly.'}
           {currentTab === 'favorites' && 'All your curated and loved films kept in one single safe vault.'}
+          {currentTab === 'watchlist' && 'Films you are planning to watch soon. Keep tracking your taste!'}
+          {currentTab === 'watched' && 'Your personalized cinema history footprint. Everything you\'ve finished.'}
           {currentTab === 'messages' && (user?.role === 'admin' ? 'Review questions and reply to CinemaVault members.' : 'Have any feedback or questions? Drop a mail directly to our Admin group.')}
           {currentTab === 'social' && 'Real-time simulated webhook feed broadcasting newly released movies to Facebook and Twitter profiles.'}
         </p>
@@ -519,13 +626,13 @@ export default function App() {
       <main className="container">
         {currentTab !== 'messages' && currentTab !== 'social' ? (
           <>
-            {/* 🌟 核心全新加入：大眾複合篩選控制列 (UX Filter Bar Bar Control) */}
+            {/* 智慧型篩選控制列 (Filter Bar Control) */}
             <div style={{
               background: '#151515', padding: '20px', borderRadius: '8px', 
               marginBottom: '30px', border: '1px solid #252525',
               display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center'
             }}>
-              {/* A. 關鍵字搜尋輸入框 */}
+              {/* A. 關鍵字搜尋 */}
               <div style={{ flex: '1 1 200px' }}>
                 <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>SEARCH BY TITLE</label>
                 <input 
@@ -537,7 +644,7 @@ export default function App() {
                 />
               </div>
 
-              {/* B. 電影類型下拉選單 */}
+              {/* B. 類型篩選 */}
               <div style={{ flex: '1 1 150px' }}>
                 <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>GENRE FILTER</label>
                 <select
@@ -554,7 +661,7 @@ export default function App() {
                 </select>
               </div>
 
-              {/* C. 年份精準輸入框 */}
+              {/* C. 年份精準篩選 */}
               <div style={{ flex: '1 1 120px' }}>
                 <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>RELEASE YEAR</label>
                 <input 
@@ -566,7 +673,7 @@ export default function App() {
                 />
               </div>
 
-              {/* D. 智慧排序下拉選單 */}
+              {/* D. 智慧排序 */}
               <div style={{ flex: '1 1 150px' }}>
                 <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>SORT BY</label>
                 <select
@@ -580,7 +687,7 @@ export default function App() {
                 </select>
               </div>
 
-              {/* E. 快速一鍵重置按鈕 */}
+              {/* E. 重置按鈕 */}
               <div style={{ alignSelf: 'flex-end' }}>
                 <button
                   onClick={handleResetFilters}
@@ -598,20 +705,28 @@ export default function App() {
             </div>
 
             <h2 className="section-title">
-              {currentTab === 'all' ? 'Now Showing' : '❤️ My Favorite Movies'}
+              {currentTab === 'all' && 'Now Showing'}
+              {currentTab === 'favorites' && '❤️ My Favorite Movies'}
+              {currentTab === 'watchlist' && '⏳ My Watchlist'}
+              {currentTab === 'watched' && '✅ Watched History'}
             </h2>
             <div className="movie-grid">
               {loadingMovies ? (
                 <div className="loading" style={{ gridColumn: '1/-1', textAlign: 'center', color: '#e50914', fontSize: '18px' }}>Searching CinemaVault database...</div>
               ) : displayedMovies.length === 0 ? (
                 <div className="loading" style={{ color: '#aaa', fontSize: '18px', gridColumn: '1/-1', textAlign: 'center', padding: '40px 0' }}>
-                  {currentTab === 'all' ? '🍿 No movies match your filter criteria.' : '💔 No favorite movies match your filter criteria.'}
+                  {currentTab === 'all' && '🍿 No movies match your filter criteria.'}
+                  {currentTab === 'favorites' && '💔 No favorite movies found.'}
+                  {currentTab === 'watchlist' && '⏳ Your watchlist is currently empty.'}
+                  {currentTab === 'watched' && '🎬 You haven\'t marked any movies as watched yet.'}
                 </div>
               ) : (
                 displayedMovies.map((movie) => {
                   const isFav = favoriteIds.includes(movie.id);
+                  const isWatchlist = watchlistIds.includes(movie.id);
+                  const isWatched = watchedIds.includes(movie.id);
+
                   return (
-                    /* 🌟 點擊卡片將會開啟 OMDb 詳細資訊彈窗 */
                     <div key={movie.id} className="movie-card" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedMovie(movie)}>
                       
                       {/* OMDb 海報呈現區塊 */}
@@ -623,21 +738,56 @@ export default function App() {
                         )}
                       </div>
 
+                      {/* 🌟 狀態面板：包含愛心、待看、已看控制按鈕群 */}
                       {user?.role !== 'admin' && (
-                        <button
-                          onClick={(e) => handleToggleFavorite(movie.id, e)}
-                          style={{
-                            position: 'absolute', top: '15px', right: '15px',
-                            background: 'rgba(0, 0, 0, 0.6)', border: 'none',
-                            borderRadius: '50%', width: '36px', height: '36px',
-                            cursor: 'pointer', display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', fontSize: '18px', zIndex: 10,
-                            color: isFav ? '#e50914' : '#fff'
-                          }}
+                        <div 
+                          style={{ position: 'absolute', top: '15px', right: '15px', display: 'flex', gap: '6px', zIndex: 10 }}
+                          onClick={(e) => e.stopPropagation()} // 阻止整張卡片的點擊彈窗事件
                         >
-                          {isFav ? '❤️' : '🤍'}
-                        </button>
+                          {/* 最愛 ❤️ */}
+                          <button
+                            onClick={(e) => handleToggleFavorite(movie.id, e)}
+                            style={{
+                              background: 'rgba(0, 0, 0, 0.75)', border: 'none',
+                              borderRadius: '50%', width: '32px', height: '32px',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', fontSize: '14px', color: isFav ? '#e50914' : '#fff'
+                            }}
+                            title={isFav ? "Remove from Favorites" : "Add to Favorites"}
+                          >
+                            {isFav ? '❤️' : '🤍'}
+                          </button>
+
+                          {/* 待看 ⏳ */}
+                          <button
+                            onClick={(e) => handleToggleWatchlist(movie.id, e)}
+                            style={{
+                              background: 'rgba(0, 0, 0, 0.75)', border: 'none',
+                              borderRadius: '50%', width: '32px', height: '32px',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', fontSize: '14px', color: isWatchlist ? '#ffb400' : '#fff'
+                            }}
+                            title={isWatchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+                          >
+                            ⏳
+                          </button>
+
+                          {/* 已看 ✅ */}
+                          <button
+                            onClick={(e) => handleToggleWatched(movie.id, e)}
+                            style={{
+                              background: 'rgba(0, 0, 0, 0.75)', border: 'none',
+                              borderRadius: '50%', width: '32px', height: '32px',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', fontSize: '14px', color: isWatched ? '#2ecc71' : '#fff'
+                            }}
+                            title={isWatched ? "Unmark as Watched" : "Mark as Watched"}
+                          >
+                            {isWatched ? '✅' : '✔'}
+                          </button>
+                        </div>
                       )}
+
                       <div className="movie-info" style={{ padding: '15px' }}>
                         <span className="movie-tag">{movie.genre}</span>
                         <h3 className="movie-title" style={{ margin: '8px 0', fontSize: '18px', color: '#fff' }}>{movie.title}</h3>
@@ -655,10 +805,9 @@ export default function App() {
         ) : currentTab === 'social' ? (
           <div style={{ maxWidth: '650px', margin: '0 auto', background: '#151515', padding: '25px', borderRadius: '8px', border: '1px solid #292929' }}>
             <h2 style={{ borderBottom: '2px solid #ffb400', paddingBottom: '10px', color: '#fff' }}>📱 Live Social Feed</h2>
-            
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               {socialFeed.length === 0 ? (
-                <p style={{ color: '#aaa', textAlign: 'center', padding: '30px 0' }}>📭 No social media logs generated yet. Try adding a new film entry as Admin to trigger the automated webhooks!</p>
+                <p style={{ color: '#aaa', textAlign: 'center', padding: '30px 0' }}>📭 No social media logs yet.</p>
               ) : (
                 socialFeed.map((post, index) => (
                   <div key={index} style={{ background: '#222', padding: '15px', borderRadius: '6px', borderLeft: '4px solid #ffb400' }}>
@@ -760,7 +909,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 🌟 華麗彈窗：點擊電影卡片後顯示 OMDb 真實詳情資訊 */}
+      {/* 華麗彈窗：點擊電影卡片後顯示 OMDb 真實詳情資訊 */}
       {selectedMovie && (
         <div className="modal" style={{ display: 'flex', zIndex: 999 }}>
           <div className="modal-content" style={{ maxWidth: '600px', padding: '0', overflow: 'hidden', background: '#1c1c1c', border: '1px solid #333' }}>

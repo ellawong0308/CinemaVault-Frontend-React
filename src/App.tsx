@@ -64,11 +64,20 @@ export default function App() {
   // 🎬 串接 OMDb 後：點擊電影卡片彈出詳情視窗的狀態管理
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
 
+  // 🔍 核心全新加入：搜尋與篩選狀態管理
+  const [searchTitle, setSearchTitle] = useState<string>('');
+  const [filterGenre, setFilterGenre] = useState<string>('');
+  const [filterYear, setFilterYear] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<string>('latest');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 當任何一個篩選或排序條件改變時，即時自動觸發 API 動態查詢（極佳的 UX 互動體驗！）
   useEffect(() => {
     fetchMovies();
+  }, [searchTitle, filterGenre, filterYear, sortOrder]);
 
+  useEffect(() => {
     const savedToken = localStorage.getItem("token");
     const savedUsername = localStorage.getItem("username");
     const savedRole = localStorage.getItem("role");
@@ -104,16 +113,34 @@ export default function App() {
     }
   }, [currentTab]);
 
+  // 🌟 升級版 API 串接：將篩選參數拼接到網址中，實現動態複合查詢
   const fetchMovies = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/movies`);
+      setLoadingMovies(true);
+      
+      // 建立動態 URL 參數
+      const params = new URLSearchParams();
+      if (searchTitle.trim()) params.append('title', searchTitle.trim());
+      if (filterGenre) params.append('genre', filterGenre);
+      if (filterYear.trim()) params.append('year', filterYear.trim());
+      if (sortOrder) params.append('sortBy', sortOrder);
+
+      const response = await fetch(`${API_BASE_URL}/movies?${params.toString()}`);
       const data = await response.json();
       setMovies(data);
     } catch (error) {
-      console.error("Error loading movies:", error);
+      console.error("Error loading filtered movies:", error);
     } finally {
       setLoadingMovies(false);
     }
+  };
+
+  // 清空所有篩選條件的快速重置按鈕邏輯
+  const handleResetFilters = () => {
+    setSearchTitle('');
+    setFilterGenre('');
+    setFilterYear('');
+    setSortOrder('latest');
   };
 
   const fetchFavoriteIds = async (userToken: string) => {
@@ -394,6 +421,7 @@ export default function App() {
     setPasswordInput('');
   };
 
+  // 用戶在我的最愛分頁時，前端基於已過濾的清單再次提供最愛過濾
   const displayedMovies = currentTab === 'all' 
     ? movies 
     : movies.filter(movie => favoriteIds.includes(movie.id));
@@ -491,15 +519,93 @@ export default function App() {
       <main className="container">
         {currentTab !== 'messages' && currentTab !== 'social' ? (
           <>
+            {/* 🌟 核心全新加入：大眾複合篩選控制列 (UX Filter Bar Bar Control) */}
+            <div style={{
+              background: '#151515', padding: '20px', borderRadius: '8px', 
+              marginBottom: '30px', border: '1px solid #252525',
+              display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center'
+            }}>
+              {/* A. 關鍵字搜尋輸入框 */}
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>SEARCH BY TITLE</label>
+                <input 
+                  type="text"
+                  value={searchTitle}
+                  onChange={(e) => setSearchTitle(e.target.value)}
+                  placeholder="🍿 Type to search film..."
+                  style={{ width: '100%', padding: '10px', background: '#222', color: '#fff', border: '1px solid #333', borderRadius: '4px' }}
+                />
+              </div>
+
+              {/* B. 電影類型下拉選單 */}
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>GENRE FILTER</label>
+                <select
+                  value={filterGenre}
+                  onChange={(e) => setFilterGenre(e.target.value)}
+                  style={{ width: '100%', padding: '10px', background: '#222', color: '#fff', border: '1px solid #333', borderRadius: '4px', cursor: 'pointer' }}
+                >
+                  <option value="">All Genres</option>
+                  <option value="Sci-Fi">Sci-Fi (科幻)</option>
+                  <option value="Action">Action (動作)</option>
+                  <option value="Adventure">Adventure (冒險)</option>
+                  <option value="Drama">Drama (劇情)</option>
+                  <option value="Thriller">Thriller (驚悚)</option>
+                </select>
+              </div>
+
+              {/* C. 年份精準輸入框 */}
+              <div style={{ flex: '1 1 120px' }}>
+                <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>RELEASE YEAR</label>
+                <input 
+                  type="number"
+                  value={filterYear}
+                  onChange={(e) => setFilterYear(e.target.value)}
+                  placeholder="Ex: 2014"
+                  style={{ width: '100%', padding: '10px', background: '#222', color: '#fff', border: '1px solid #333', borderRadius: '4px' }}
+                />
+              </div>
+
+              {/* D. 智慧排序下拉選單 */}
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={{ display: 'block', color: '#aaa', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>SORT BY</label>
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                  style={{ width: '100%', padding: '10px', background: '#222', color: '#fff', border: '1px solid #333', borderRadius: '4px', cursor: 'pointer' }}
+                >
+                  <option value="latest">Latest Added (最新上架)</option>
+                  <option value="year_desc">Year: New to Old (年份：新到舊)</option>
+                  <option value="year_asc">Year: Old to New (年份：舊到新)</option>
+                </select>
+              </div>
+
+              {/* E. 快速一鍵重置按鈕 */}
+              <div style={{ alignSelf: 'flex-end' }}>
+                <button
+                  onClick={handleResetFilters}
+                  style={{
+                    padding: '10px 18px', backgroundColor: '#333', color: '#fff',
+                    border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#444'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#333'}
+                >
+                  🔄 Reset
+                </button>
+              </div>
+            </div>
+
             <h2 className="section-title">
               {currentTab === 'all' ? 'Now Showing' : '❤️ My Favorite Movies'}
             </h2>
             <div className="movie-grid">
               {loadingMovies ? (
-                <div className="loading">Loading movies from database...</div>
+                <div className="loading" style={{ gridColumn: '1/-1', textAlign: 'center', color: '#e50914', fontSize: '18px' }}>Searching CinemaVault database...</div>
               ) : displayedMovies.length === 0 ? (
                 <div className="loading" style={{ color: '#aaa', fontSize: '18px', gridColumn: '1/-1', textAlign: 'center', padding: '40px 0' }}>
-                  {currentTab === 'all' ? '🍿 No movies found.' : '💔 You haven\'t favorited any movies yet.'}
+                  {currentTab === 'all' ? '🍿 No movies match your filter criteria.' : '💔 No favorite movies match your filter criteria.'}
                 </div>
               ) : (
                 displayedMovies.map((movie) => {
@@ -549,7 +655,6 @@ export default function App() {
         ) : currentTab === 'social' ? (
           <div style={{ maxWidth: '650px', margin: '0 auto', background: '#151515', padding: '25px', borderRadius: '8px', border: '1px solid #292929' }}>
             <h2 style={{ borderBottom: '2px solid #ffb400', paddingBottom: '10px', color: '#fff' }}>📱 Live Social Feed</h2>
-            
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               {socialFeed.length === 0 ? (

@@ -6,6 +6,9 @@ interface Movie {
   genre: string;
   year: number;
   director: string;
+  poster?: string | null; // 🌟 OMDb 真實海報網址
+  actors?: string;        // 🌟 OMDb 真實演員名單
+  plot?: string;          // 🌟 OMDb 真實劇情簡介
 }
 
 interface User {
@@ -30,7 +33,6 @@ interface SocialPost {
 }
 
 const API_BASE_URL = "http://localhost:10888/api/v1";
-// 🌟 請記得換成你真實的 Google Client ID
 const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.googleusercontent.com"; 
 
 export default function App() {
@@ -38,7 +40,6 @@ export default function App() {
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]); 
   const [loadingMovies, setLoadingMovies] = useState<boolean>(true);
   
-  // 🌟 擴充索引標籤，加入 'social' 虛擬社群動態牆分頁
   const [currentTab, setCurrentTab] = useState<'all' | 'favorites' | 'messages' | 'social'>('all');
 
   const [user, setUser] = useState<User | null>(null);
@@ -59,6 +60,9 @@ export default function App() {
 
   // 📱 虛擬社群動態牆狀態管理
   const [socialFeed, setSocialFeed] = useState<SocialPost[]>([]);
+
+  // 🎬 串接 OMDb 後：點擊電影卡片彈出詳情視窗的狀態管理
+  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,14 +92,12 @@ export default function App() {
     }
   }, [isModalOpen, authMode]);
 
-  // 當切換到訊息分頁，且使用者是 admin 時，自動抓取所有信件
   useEffect(() => {
     if (currentTab === 'messages' && user?.role === 'admin' && token) {
       fetchAdminMessages();
     }
   }, [currentTab, user, token]);
 
-  // 🌟 當切換到社群牆分頁時，自動向後端重新整理並獲取最新虛擬推文
   useEffect(() => {
     if (currentTab === 'social') {
       fetchSocialFeed();
@@ -129,7 +131,6 @@ export default function App() {
     }
   };
 
-  // 📱 獲取後台虛擬社群廣播牆動態
   const fetchSocialFeed = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/movies/social-feed`);
@@ -142,7 +143,6 @@ export default function App() {
     }
   };
 
-  // ✉️ 獲取後台所有信件 (Admin Only)
   const fetchAdminMessages = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/messages`, {
@@ -157,7 +157,6 @@ export default function App() {
     }
   };
 
-  // ✉️ 會員提交信件表單
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -182,7 +181,6 @@ export default function App() {
     }
   };
 
-  // ✉️ 管理員提交回覆
   const handleAdminReply = async (msgId: number) => {
     const replyText = adminReplies[msgId];
     if (!replyText || !replyText.trim()) {
@@ -201,13 +199,12 @@ export default function App() {
       });
       if (!res.ok) throw new Error("Reply failed");
       alert("💬 Reply submitted successfully!");
-      fetchAdminMessages(); // 重新整理清單
+      fetchAdminMessages();
     } catch (err: any) {
       alert(`❌ Error: ${err.message}`);
     }
   };
 
-  // ✉️ 管理員刪除信件
   const handleAdminDeleteMessage = async (msgId: number) => {
     if (!window.confirm("Are you sure you want to delete this message?")) return;
     try {
@@ -415,12 +412,11 @@ export default function App() {
             Home
           </button>
 
-          {/* 🌟 核心功能按鈕：社群媒體公告牆 (公開所有人可查閱) */}
           <button 
             onClick={() => setCurrentTab('social')} 
             style={{ background: 'none', border: 'none', color: currentTab === 'social' ? '#ffb400' : '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
           >
-            📱 Admin Social Feed
+            📱 Social Feed
           </button>
 
           {user && user.role !== 'admin' && (
@@ -432,7 +428,6 @@ export default function App() {
             </button>
           )}
 
-          {/* 🌟 聯絡管理員 / 後台管理按鈕 */}
           {user && (
             <button 
               onClick={() => setCurrentTab('messages')} 
@@ -510,7 +505,18 @@ export default function App() {
                 displayedMovies.map((movie) => {
                   const isFav = favoriteIds.includes(movie.id);
                   return (
-                    <div key={movie.id} className="movie-card" style={{ position: 'relative' }}>
+                    /* 🌟 點擊卡片將會開啟 OMDb 詳細資訊彈窗 */
+                    <div key={movie.id} className="movie-card" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedMovie(movie)}>
+                      
+                      {/* OMDb 海報呈現區塊 */}
+                      <div className="movie-poster-wrapper" style={{ width: '100%', height: '320px', background: '#222', overflow: 'hidden' }}>
+                        {movie.poster ? (
+                          <img src={movie.poster} alt={movie.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#666', fontSize: '40px' }}>🎬</div>
+                        )}
+                      </div>
+
                       {user?.role !== 'admin' && (
                         <button
                           onClick={(e) => handleToggleFavorite(movie.id, e)}
@@ -526,9 +532,9 @@ export default function App() {
                           {isFav ? '❤️' : '🤍'}
                         </button>
                       )}
-                      <div className="movie-info">
+                      <div className="movie-info" style={{ padding: '15px' }}>
                         <span className="movie-tag">{movie.genre}</span>
-                        <h3 className="movie-title">{movie.title}</h3>
+                        <h3 className="movie-title" style={{ margin: '8px 0', fontSize: '18px', color: '#fff' }}>{movie.title}</h3>
                         <div className="movie-details">
                           <p><strong>Director:</strong> {movie.director}</p>
                           <p><strong>Release Year:</strong> {movie.year}</p>
@@ -541,7 +547,6 @@ export default function App() {
             </div>
           </>
         ) : currentTab === 'social' ? (
-          /* 🌟 虛擬社群媒體公告牆 UI 渲染區塊 */
           <div style={{ maxWidth: '650px', margin: '0 auto', background: '#151515', padding: '25px', borderRadius: '8px', border: '1px solid #292929' }}>
             <h2 style={{ borderBottom: '2px solid #ffb400', paddingBottom: '10px', color: '#fff' }}>📱 Live Social Feed</h2>
             
@@ -563,10 +568,8 @@ export default function App() {
             </div>
           </div>
         ) : (
-          /* 🌟 聯絡管理員分頁：依照角色動態切換 UI */
           <div style={{ maxWidth: '800px', margin: '0 auto', color: '#fff', padding: '20px', background: '#181818', borderRadius: '8px' }}>
             {user?.role !== 'admin' ? (
-              /* A. 普通會員介面：顯示寄信表單 */
               <div>
                 <h3 style={{ borderBottom: '2px solid #e50914', paddingBottom: '10px' }}>✉️ Send Direct Message to Admin</h3>
                 <form onSubmit={handleSendMessage} style={{ marginTop: '20px' }}>
@@ -598,7 +601,6 @@ export default function App() {
                 </form>
               </div>
             ) : (
-              /* B. 管理員後台介面：列出信件、回覆與刪除 */
               <div>
                 <h3 style={{ borderBottom: '2px solid #e50914', paddingBottom: '10px' }}>📩 Customer Tickets Inbox ({messages.length})</h3>
                 {messages.length === 0 ? (
@@ -621,7 +623,6 @@ export default function App() {
                         <h4 style={{ margin: '5px 0', fontSize: '18px' }}>📌 Subject: {msg.title}</h4>
                         <p style={{ background: '#111', padding: '10px', borderRadius: '4px', color: '#ddd', fontSize: '15px' }}>{msg.content}</p>
                         
-                        {/* 顯示現有回覆，或提供回覆輸入框 */}
                         {msg.reply ? (
                           <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(229,9,20,0.1)', border: '1px dashed #e50914', borderRadius: '4px' }}>
                             <strong style={{ color: '#e50914' }}>✍️ Admin Reply:</strong>
@@ -653,6 +654,39 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* 🌟 華麗彈窗：點擊電影卡片後顯示 OMDb 真實詳情資訊 */}
+      {selectedMovie && (
+        <div className="modal" style={{ display: 'flex', zIndex: 999 }}>
+          <div className="modal-content" style={{ maxWidth: '600px', padding: '0', overflow: 'hidden', background: '#1c1c1c', border: '1px solid #333' }}>
+            <span onClick={() => setSelectedMovie(null)} className="close-btn" style={{ position: 'absolute', top: '15px', right: '20px', zIndex: 100, fontSize: '30px', color: '#fff', cursor: 'pointer' }}>&times;</span>
+            
+            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 220px', background: '#000' }}>
+                {selectedMovie.poster ? (
+                  <img src={selectedMovie.poster} alt={selectedMovie.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', color: '#444', fontSize: '50px' }}>🎬</div>
+                )}
+              </div>
+              <div style={{ flex: '1 2 320px', padding: '25px', color: '#fff' }}>
+                <span style={{ background: '#e50914', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>{selectedMovie.genre}</span>
+                <h2 style={{ margin: '10px 0 5px 0', fontSize: '24px' }}>{selectedMovie.title}</h2>
+                <p style={{ margin: '0 0 15px 0', color: '#888', fontSize: '14px' }}>Release Year: {selectedMovie.year}</p>
+                
+                <div style={{ borderTop: '1px solid #333', paddingTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
+                  <p><strong>🎬 Director:</strong> {selectedMovie.director}</p>
+                  <p><strong>🎭 Starring:</strong> {selectedMovie.actors || "N/A"}</p>
+                  <p style={{ marginTop: '10px', lineHeight: '1.6', color: '#ccc', background: '#111', padding: '12px', borderRadius: '6px' }}>
+                    <strong>📝 Plot Summary:</strong><br />
+                    {selectedMovie.plot || "No summary found."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 認證彈窗 */}
       {isModalOpen && (
